@@ -13,36 +13,74 @@ logger = logging.getLogger(__name__)
 
 TOKEN = "8909435876:AAEYHG1GXb0fDop0rPdpd7wH5fEsRzNLgVk"
 
-async def check_link(session, url, index):
+async def check_telegram_link(session, url, index):
+    """Check Telegram invite/channel links using Telegram's own API."""
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/114.0 Safari/537.36"
-        }
-        async with session.get(
-            url,
-            timeout=aiohttp.ClientTimeout(total=15),
-            allow_redirects=True,
-            ssl=False,
-            headers=headers
-        ) as response:
-            # 200-299 = working, 301/302 = redirect (follow), 403 = forbidden but exists
-            # 404 = not found, 410 = gone, 5xx = server error
+        # Extract invite hash from t.me/+HASH or t.me/joinchat/HASH
+        invite_match = re.search(r't\.me/\+([A-Za-z0-9_-]+)', url)
+        joinchat_match = re.search(r't\.me/joinchat/([A-Za-z0-9_-]+)', url)
+        username_match = re.search(r't\.me/([A-Za-z0-9_]+)$', url)
+
+        if invite_match or joinchat_match:
+            hash_val = invite_match.group(1) if invite_match else joinchat_match.group(1)
+            api_url = f"https://api.telegram.org/bot{TOKEN}/checkChatInviteLink"
+            async with session.post(api_url, json={"invite_link": f"https://t.me/+{hash_val}"}, ssl=False, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                data = await resp.json()
+                if data.get("ok"):
+                    return (index, url, True)
+                else:
+                    return (index, url, False)
+
+        elif username_match:
+            username = username_match.group(1)
+            # Skip common non-channel paths
+            if username.lower() in ["addlist", "share", "joinchat"]:
+                return (index, url, False)
+            api_url = f"https://api.telegram.org/bot{TOKEN}/getChat"
+            async with session.post(api_url, json={"chat_id": f"@{username}"}, ssl=False, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                data = await resp.json()
+                if data.get("ok"):
+                    return (index, url, True)
+                else:
+                    return (index, url, False)
+
+        else:
+            # For addlist or unknown t.me formats, do a plain HTTP check
+            headers = {"User-Agent": "Mozilla/5.0"}
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10), allow_redirects=True, ssl=False, headers=headers) as response:
+                if response.status < 400:
+                    return (index, url, True)
+                return (index, url, False)
+
+    except Exception as e:
+        logger.error(f"Error checking {url}: {e}")
+        return (index, url, False)
+
+async def check_regular_link(session, url, index):
+    """Check non-Telegram links."""
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/114.0 Safari/537.36"}
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=15), allow_redirects=True, ssl=False, headers=headers) as response:
             if response.status in [404, 410, 500, 502, 503, 504]:
                 return (index, url, False)
             elif response.status < 400:
                 return (index, url, True)
             else:
                 return (index, url, False)
-    except asyncio.TimeoutError:
-        return (index, url, False)
     except Exception:
         return (index, url, False)
+
+async def check_link(session, url, index):
+    if "t.me" in url:
+        return await check_telegram_link(session, url, index)
+    else:
+        return await check_regular_link(session, url, index)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "👋 Welcome to Link Checker Bot!\n\n"
-        "Just send me any number of links and I'll check which ones are working ✅\n\n"
-        "I'll reply with only the working links sorted by number!"
+        "Send me any Telegram links and I'll check which ones are actually working ✅\n\n"
+        "I'll reply with only the valid/active links!"
     )
 
 async def check_links(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -85,7 +123,7 @@ async def check_links(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         reply += f"{i}. {url}\n\n"
 
     if dead:
-        reply += f"❌ Dead/Expired Links: {len(dead)}/{total}"
+        reply += f"❌ Dead/Expired: {len(dead)}/{total}"
 
     await status_msg.edit_text(reply)
 
