@@ -25,10 +25,7 @@ async def check_link(session, url, index):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "👋 Welcome to Link Checker Bot!\n\n"
-        "Just send me any number of links (one per line or mixed in text) "
-        "and I'll check which ones are working ✅\n\n"
-        "I'll reply with all working links sorted by number!"
+        "👋 Welcome to Link Checker Bot!\n\nJust send me any number of links and I'll check which ones are working ✅\n\nI'll reply with all working links sorted by number!"
     )
 
 async def check_links(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -51,21 +48,18 @@ async def check_links(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     dead = [(index, url) for index, url, ok in sorted(results) if not ok]
 
     if not working:
-        await status_msg.edit_text(
-            f"😔 Checked {total} link(s)\n\n"
-            f"❌ No working links found! All {total} links are dead or unreachable."
-        )
+        await status_msg.edit_text(f"😔 Checked {total} link(s)\n\n❌ No working links found! All {total} links are dead.")
         return
 
-    reply = f"✅ *Working Links* ({len(working)}/{total})\n"
-    reply += "─" * 30 + "\n\n"
+    reply = f"✅ Working Links ({len(working)}/{total})\n"
+    reply += "──────────────────────\n\n"
     for i, (orig_index, url) in enumerate(working, 1):
         reply += f"{i}. {url}\n\n"
 
     if dead:
-        reply += f"\n❌ *Dead Links:* {len(dead)}/{total}"
+        reply += f"\n❌ Dead Links: {len(dead)}/{total}"
 
-    await status_msg.edit_text(reply, parse_mode="Markdown")
+    await status_msg.edit_text(reply)
 
 def main() -> None:
     application = Application.builder().token(TOKEN).build()
